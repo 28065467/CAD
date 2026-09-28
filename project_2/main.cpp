@@ -2,6 +2,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <string>
 #include <algorithm>
 #include <set>
@@ -439,6 +440,54 @@ bool write_output(const std::string &filename, const InputData &data, const Tree
     return true;
 }
 
+// 輸出 gnuplot 檔（格式同 Example/*.plt）：SRC、sinks，再依 buflib 順序每種 buffer 一組，
+// buffer 越大的 type 點越大
+bool write_plot(const std::string &filename, const InputData &data, const Tree &tree, const TreeInfo &info)
+{
+    std::ofstream out(filename);
+    if(!out.is_open()){
+        std::cerr << "Cannot open plot file\n";
+        return false;
+    }
+    out << "set xrange [0:" << data.dim_x << "]\n";
+    out << "set yrange [0:" << data.dim_y << "]\n\n";
+
+    // 點太多時標籤會糊成一片，只在小測資加
+    if(tree.nodes.size() <= 200){
+        auto label = [&](const std::string &name, const Pin &p){
+            out << "set label \"" << name << "\" at " << p.x << "," << p.y
+                << " offset 0,-1.2 center tc rgb \"red\"\n";
+        };
+        label("SRC", data.src);
+        for(int i = 0 ; i < tree.num_sinks ; i++)
+            label("S" + std::to_string(i + 1), tree.nodes[i].pos);
+        for(int u : info.buf_order)
+            label(node_name(u, tree, info), tree.nodes[u].pos);
+        out << '\n';
+    }
+
+    out << "plot '-' with points pt 9 ps 1.5 notitle, \\\n";
+    out << "     '-' with points pt 7 ps 1.5 notitle";
+    for(size_t t = 0 ; t < data.buflib.size() ; t++){
+        out << ", \\\n";
+        out << "     '-' with points pt 5 ps " << std::fixed << std::setprecision(1) << 1.5 + 0.5 * t << " notitle";
+    }
+    out << "\n\n";
+
+    out << data.src.x << " " << data.src.y << " # SRC\ne\n";
+    for(int i = 0 ; i < tree.num_sinks ; i++)
+        out << tree.nodes[i].pos.x << " " << tree.nodes[i].pos.y << " # T" << i + 1 << '\n';
+    out << "e\n";
+    for(size_t t = 0 ; t < data.buflib.size() ; t++){
+        for(int u : info.buf_order)
+            if(tree.nodes[u].type == (int)t)
+                out << tree.nodes[u].pos.x << " " << tree.nodes[u].pos.y << " # B" << info.buf_id[u] << '\n';
+        out << "e\n";
+    }
+    out.close();
+    return true;
+}
+
 // 檢查 fanout / length 限制、座標範圍與重複，有問題印到 stderr
 bool check_legal(const InputData &data, const Tree &tree, const TreeInfo &info)
 {
@@ -506,6 +555,14 @@ int main(int argc, char* argv[])
     check_legal(data, tree, info);
     if(!write_output(output_file, data, tree, info))
         return 1;
+
+    // output.cbi -> output.plt
+    std::string plot_file = output_file;
+    if(plot_file.size() >= 4 && plot_file.compare(plot_file.size() - 4, 4, ".cbi") == 0)
+        plot_file.replace(plot_file.size() - 4, 4, ".plt");
+    else
+        plot_file += ".plt";
+    write_plot(plot_file, data, tree, info);
 
     int t_max = INT_MIN, t_min = INT_MAX, cost = 0;
     for(int i = 0 ; i < tree.num_sinks ; i++){

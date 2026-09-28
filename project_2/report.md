@@ -1,0 +1,2 @@
+## Initial
+使用greedy algorithm因為buffer的fanout越大其分攤下來的cost就越小，所以將整個pin腳視作集合，每次從中取出盡量多且滿足length要求的pin並以最大的buffer做連接，剩下的無法的納入的pin就把他單獨用一buffer連接

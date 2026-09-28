@@ -9,6 +9,7 @@
 #include <queue>
 #include <climits>
 #include <cstdlib>
+#include <cmath>
 #include <err.h>
 typedef struct buffer
 {
@@ -39,6 +40,8 @@ typedef struct node{
     Pin pos;
     int type;                   // -1: sink, >=0: buflib 的 index
     std::vector<int> children;
+    int dmin = 0;               // 從這個節點到底下 sinks 的最短 / 最長 delay
+    int dmax = 0;
 }Node;
 
 typedef struct tree{
@@ -252,12 +255,89 @@ static bool place_buffer(const std::vector<int> &group, int limit, const InputDa
     return false;
 }
 
+// buffer 放在 p 時，它底下 sinks 的 delay 範圍 [lo, hi]
+static void delay_range(const Pin &p, const std::vector<int> &group, const Tree &tree, int &lo, int &hi)
+{
+    lo = INT_MAX;
+    hi = INT_MIN;
+    for(int v : group){
+        int d = calculate_distance(p, tree.nodes[v].pos);
+        lo = std::min(lo, d + tree.nodes[v].dmin);
+        hi = std::max(hi, d + tree.nodes[v].dmax);
+    }
+}
+
+// 在 children 的 bounding box 裡找讓子樹 skew 最小的位置（同分時選離 SRC 近的）。
+// box 太大時先用粗格子掃，再在最佳點附近細掃
+static bool place_balanced(const std::vector<int> &group, int limit, const InputData &data,
+                           const Tree &tree, const Occupied &occupied, Pin &out, int &skew)
+{
+    int x0 = INT_MAX, x1 = INT_MIN, y0 = INT_MAX, y1 = INT_MIN;
+    for(int v : group){
+        x0 = std::min(x0, tree.nodes[v].pos.x);
+        x1 = std::max(x1, tree.nodes[v].pos.x);
+        y0 = std::min(y0, tree.nodes[v].pos.y);
+        y1 = std::max(y1, tree.nodes[v].pos.y);
+    }
+    x0 = std::max(x0, 0);
+    y0 = std::max(y0, 0);
+    x1 = std::min(x1, data.dim_x);
+    y1 = std::min(y1, data.dim_y);
+
+    bool found = false;
+    int best_skew = INT_MAX, best_src = INT_MAX;
+    auto try_pos = [&](int x, int y){
+        if(x < x0 || x > x1 || y < y0 || y > y1)
+            return;
+        if(occupied.count({x, y}))
+            return;
+        Pin p = {x, y};
+        if(sum_dist(p, group, tree) > limit)
+            return;
+        int lo, hi;
+        delay_range(p, group, tree, lo, hi);
+        int s = hi - lo, ds = calculate_distance(p, data.src);
+        if(s < best_skew || (s == best_skew && ds < best_src)){
+            best_skew = s;
+            best_src = ds;
+            out = p;
+            found = true;
+        }
+    };
+
+    Pin m = median_pos(group, tree);
+    try_pos(m.x, m.y);
+    long long area = (long long)(x1 - x0 + 1) * (y1 - y0 + 1);
+    int step = std::max(1, (int)std::ceil(std::sqrt(area / 2500.0)));
+    for(int x = x0 ; x <= x1 ; x += step)
+        for(int y = y0 ; y <= y1 ; y += step)
+            try_pos(x, y);
+    if(found && step > 1){
+        Pin c = out;
+        for(int x = c.x - step ; x <= c.x + step ; x++)
+            for(int y = c.y - step ; y <= c.y + step ; y++)
+                try_pos(x, y);
+    }
+
+    if(!found){
+        // box 內沒有合法點：退回原本的放法
+        if(!place_buffer(group, limit, data, tree, occupied, out))
+            return false;
+        int lo, hi;
+        delay_range(out, group, tree, lo, hi);
+        best_skew = hi - lo;
+    }
+    skew = best_skew;
+    return true;
+}
+
 static int add_buffer(Tree &tree, int type, const std::vector<int> &group, const Pin &pos, Occupied &occupied)
 {
     Node n;
     n.pos = pos;
     n.type = type;
     n.children = group;
+    delay_range(pos, group, tree, n.dmin, n.dmax);
     tree.nodes.push_back(n);
     occupied.insert({pos.x, pos.y});
     return tree.nodes.size() - 1;
@@ -269,9 +349,14 @@ static bool src_can_drive(const std::vector<int> &active, const InputData &data,
            sum_dist(data.src, active, tree) <= data.src_length;
 }
 
-// 由下往上建樹：每一層把節點分群，每群放一個能帶得動的最便宜 buffer，
-// 直到 SRC 能直接帶剩下的所有節點
-bool build_tree(const InputData &data, Tree &tree)
+enum BuildMode{
+    NAIVE,          // 最便宜的 type，放在中位數再往 SRC 推
+    BALANCED_CHEAP, // 最便宜的 type，放在讓子樹 skew 最小的位置
+    BALANCED_TYPE   // 每種 type 都試，選 cost + w_skew * 子樹 skew 最小的
+};
+
+// 由下往上建樹：每一層把節點分群，每群放一個 buffer，直到 SRC 能直接帶剩下的所有節點
+bool build_tree(const InputData &data, Tree &tree, BuildMode mode)
 {
     tree.nodes.clear();
     tree.num_sinks = data.sinks.size();
@@ -333,9 +418,37 @@ bool build_tree(const InputData &data, Tree &tree)
                 remaining.erase(std::find(remaining.begin(), remaining.end(), group[k]));
 
             // 只有一個點就不放 buffer，直接留到上一層
-            int t = group.size() > 1 ? cheapest_type(group, tree, data) : -1;
+            int t = -1;
             Pin pos;
-            if(t >= 0 && place_buffer(group, data.buflib[t].length, data, tree, occupied, pos)){
+            if(group.size() > 1 && mode == BALANCED_TYPE){
+                int sd = sum_dist(median_pos(group, tree), group, tree);
+                long long best_val = LLONG_MAX;
+                for(size_t i = 0 ; i < data.buflib.size() ; i++){
+                    const Buffer &b = data.buflib[i];
+                    Pin p;
+                    int skew;
+                    if((int)group.size() > b.fanout || sd > b.length)
+                        continue;
+                    if(!place_balanced(group, b.length, data, tree, occupied, p, skew))
+                        continue;
+                    long long val = b.cost + (long long)data.w_skew * skew;
+                    if(val < best_val){
+                        best_val = val;
+                        t = i;
+                        pos = p;
+                    }
+                }
+            }
+            else if(group.size() > 1){
+                t = cheapest_type(group, tree, data);
+                int skew;
+                bool placed = t >= 0 && (mode == NAIVE
+                    ? place_buffer(group, data.buflib[t].length, data, tree, occupied, pos)
+                    : place_balanced(group, data.buflib[t].length, data, tree, occupied, pos, skew));
+                if(!placed)
+                    t = -1;
+            }
+            if(t >= 0){
                 next.push_back(add_buffer(tree, t, group, pos, occupied));
                 merged = true;
             }
@@ -529,6 +642,28 @@ bool check_legal(const InputData &data, const Tree &tree, const TreeInfo &info)
     return ok;
 }
 
+typedef struct result{
+    int t_max = 0;
+    int t_min = 0;
+    int cost = 0;
+    long long score = 0;
+}Result;
+
+Result evaluate(const InputData &data, const Tree &tree, const TreeInfo &info)
+{
+    Result r;
+    r.t_max = INT_MIN;
+    r.t_min = INT_MAX;
+    for(int i = 0 ; i < tree.num_sinks ; i++){
+        r.t_max = std::max(r.t_max, info.arrival[i]);
+        r.t_min = std::min(r.t_min, info.arrival[i]);
+    }
+    for(int u : info.buf_order)
+        r.cost += data.buflib[tree.nodes[u].type].cost;
+    r.score = r.cost + (long long)data.w_skew * (r.t_max - r.t_min);
+    return r;
+}
+
 int main(int argc, char* argv[])
 {
     std::string input_file,output_file;
@@ -546,12 +681,31 @@ int main(int argc, char* argv[])
     if(!read_input(input_file, data))
         return 1;
 
+    // 每種建法都試，留 Score 最低的
     Tree tree;
-    if(!build_tree(data, tree)){
+    TreeInfo info;
+    Result res;
+    bool ok = false;
+    const char *mode_name[] = {"naive", "balanced_cheap", "balanced_type"};
+    for(BuildMode mode : {NAIVE, BALANCED_CHEAP, BALANCED_TYPE}){
+        Tree t;
+        if(!build_tree(data, t, mode))
+            continue;
+        TreeInfo ti = analyze_tree(data, t);
+        Result r = evaluate(data, t, ti);
+        std::cerr << mode_name[mode] << ": cost " << r.cost
+                  << ", skew " << r.t_max - r.t_min << ", Score " << r.score << '\n';
+        if(!ok || r.score < res.score){
+            tree = t;
+            info = ti;
+            res = r;
+            ok = true;
+        }
+    }
+    if(!ok){
         std::cerr << "Failed to build a legal clock tree\n";
         return 1;
     }
-    TreeInfo info = analyze_tree(data, tree);
     check_legal(data, tree, info);
     if(!write_output(output_file, data, tree, info))
         return 1;
@@ -564,15 +718,7 @@ int main(int argc, char* argv[])
         plot_file += ".plt";
     write_plot(plot_file, data, tree, info);
 
-    int t_max = INT_MIN, t_min = INT_MAX, cost = 0;
-    for(int i = 0 ; i < tree.num_sinks ; i++){
-        t_max = std::max(t_max, info.arrival[i]);
-        t_min = std::min(t_min, info.arrival[i]);
-    }
-    for(int u : info.buf_order)
-        cost += data.buflib[tree.nodes[u].type].cost;
-    int score = cost + data.w_skew * (t_max - t_min);
-    std::cout << "T_max: " << t_max << ", T_min: " << t_min << ", Score: " << score << '\n';
+    std::cout << "T_max: " << res.t_max << ", T_min: " << res.t_min << ", T_skew: " << (res.t_max - res.t_min) << ", Score: " << res.score << '\n';
 
     return 0;
 }

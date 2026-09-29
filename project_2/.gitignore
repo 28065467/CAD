@@ -1,0 +1,4 @@
+# 開頭加 / 表示只忽略 project_2 這一層，子資料夾（Naive_Greedy、DME、kmeans…）裡的同名檔照樣會被追蹤
+/cbi
+/output.cbi
+/output.plt

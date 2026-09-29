@@ -349,14 +349,153 @@ static bool src_can_drive(const std::vector<int> &active, const InputData &data,
            sum_dist(data.src, active, tree) <= data.src_length;
 }
 
-enum BuildMode{
+enum Grouping{
+    GREEDY,         // 從離 SRC 最遠的點開始，貪婪地抓最近的鄰居
+    KMEANS          // 有容量限制的 k-means
+};
+
+enum Placement{
     NAIVE,          // 最便宜的 type，放在中位數再往 SRC 推
     BALANCED_CHEAP, // 最便宜的 type，放在讓子樹 skew 最小的位置
     BALANCED_TYPE   // 每種 type 都試，選 cost + w_skew * 子樹 skew 最小的
 };
 
+// 貪婪分群：從離 SRC 最遠的點開始，把離它最近的點一個一個加進來，直到 buffer 帶不動
+static std::vector<std::vector<int>> group_greedy(std::vector<int> remaining, const InputData &data,
+                                                  const Tree &tree, int max_fanout)
+{
+    auto dist_src = [&](int v){ return calculate_distance(data.src, tree.nodes[v].pos); };
+    std::vector<std::vector<int>> groups;
+    while(!remaining.empty()){
+        auto far = std::max_element(remaining.begin(), remaining.end(),
+                                    [&](int a, int b){ return dist_src(a) < dist_src(b); });
+        int seed = *far;
+        remaining.erase(far);
+        const Pin sp = tree.nodes[seed].pos;
+        std::sort(remaining.begin(), remaining.end(), [&](int a, int b){
+            return calculate_distance(sp, tree.nodes[a].pos) < calculate_distance(sp, tree.nodes[b].pos);
+        });
+
+        std::vector<int> group = {seed};
+        for(int v : remaining){
+            if((int)group.size() >= max_fanout)
+                break;
+            group.push_back(v);
+            if(cheapest_type(group, tree, data) < 0)
+                group.pop_back();
+        }
+        for(size_t k = 1 ; k < group.size() ; k++)
+            remaining.erase(std::find(remaining.begin(), remaining.end(), group[k]));
+        groups.push_back(group);
+    }
+    return groups;
+}
+
+// 有容量限制的 k-means：k = ceil(n / max_fanout)，每群最多 max_fanout 個點，
+// 中心用中位數（Manhattan 距離下的最佳中心）。分完後帶不動的群，把最遠的點踢出去自成一群
+static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active, const InputData &data,
+                                                  const Tree &tree, int max_fanout)
+{
+    int n = active.size();
+    int k = (n + max_fanout - 1) / max_fanout;
+    auto pos = [&](int i){ return tree.nodes[active[i]].pos; };
+
+    // 初始中心：farthest-first，從離 SRC 最遠的點開始
+    std::vector<Pin> centers;
+    std::vector<int> near_d(n, INT_MAX);
+    int first = 0;
+    for(int i = 1 ; i < n ; i++)
+        if(calculate_distance(data.src, pos(i)) > calculate_distance(data.src, pos(first)))
+            first = i;
+    centers.push_back(pos(first));
+    while((int)centers.size() < k){
+        int far = 0;
+        for(int i = 0 ; i < n ; i++){
+            near_d[i] = std::min(near_d[i], calculate_distance(pos(i), centers.back()));
+            if(near_d[i] > near_d[far])
+                far = i;
+        }
+        centers.push_back(pos(far));
+    }
+
+    std::vector<int> assign(n, -1);
+    const int CAND = 16;        // 每個點只看最近的幾個中心，太多會很慢
+    for(int iter = 0 ; iter < 20 ; iter++){
+        // 每個點的候選中心（由近到遠）
+        std::vector<std::vector<int>> cand(n);
+        std::vector<int> order(n), regret(n);
+        for(int i = 0 ; i < n ; i++){
+            std::vector<int> ids(k);
+            for(int c = 0 ; c < k ; c++)
+                ids[c] = c;
+            int m = std::min(k, CAND);
+            auto by_dist = [&](int a, int b){
+                return calculate_distance(pos(i), centers[a]) < calculate_distance(pos(i), centers[b]);
+            };
+            std::partial_sort(ids.begin(), ids.begin() + m, ids.end(), by_dist);
+            ids.resize(m);
+            cand[i] = ids;
+            // regret：第一和第二近的差距越大，越該先分，免得被搶走
+            regret[i] = m > 1 ? calculate_distance(pos(i), centers[ids[1]]) - calculate_distance(pos(i), centers[ids[0]]) : 0;
+            order[i] = i;
+        }
+        std::sort(order.begin(), order.end(), [&](int a, int b){ return regret[a] > regret[b]; });
+
+        std::vector<int> size(k, 0), new_assign(n, -1);
+        for(int i : order){
+            for(int c : cand[i])
+                if(size[c] < max_fanout){
+                    new_assign[i] = c;
+                    break;
+                }
+            if(new_assign[i] < 0){
+                // 候選都滿了：找最近的還有空位的中心（總容量 k*F >= n，一定找得到）
+                int best = -1;
+                for(int c = 0 ; c < k ; c++)
+                    if(size[c] < max_fanout &&
+                       (best < 0 || calculate_distance(pos(i), centers[c]) < calculate_distance(pos(i), centers[best])))
+                        best = c;
+                new_assign[i] = best;
+            }
+            size[new_assign[i]]++;
+        }
+
+        bool changed = new_assign != assign;
+        assign = new_assign;
+        if(!changed)
+            break;
+
+        // 更新中心為群內的中位數
+        std::vector<std::vector<int>> members(k);
+        for(int i = 0 ; i < n ; i++)
+            members[assign[i]].push_back(active[i]);
+        for(int c = 0 ; c < k ; c++)
+            if(!members[c].empty())
+                centers[c] = median_pos(members[c], tree);
+    }
+
+    std::vector<std::vector<int>> groups(k), result;
+    for(int i = 0 ; i < n ; i++)
+        groups[assign[i]].push_back(active[i]);
+    for(std::vector<int> &g : groups){
+        if(g.empty())
+            continue;
+        // length 超過：把離中位數最遠的點踢出去
+        while(g.size() > 1 && cheapest_type(g, tree, data) < 0){
+            Pin m = median_pos(g, tree);
+            auto far = std::max_element(g.begin(), g.end(), [&](int a, int b){
+                return calculate_distance(m, tree.nodes[a].pos) < calculate_distance(m, tree.nodes[b].pos);
+            });
+            result.push_back({*far});
+            g.erase(far);
+        }
+        result.push_back(g);
+    }
+    return result;
+}
+
 // 由下往上建樹：每一層把節點分群，每群放一個 buffer，直到 SRC 能直接帶剩下的所有節點
-bool build_tree(const InputData &data, Tree &tree, BuildMode mode)
+bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement placement)
 {
     tree.nodes.clear();
     tree.num_sinks = data.sinks.size();
@@ -393,34 +532,17 @@ bool build_tree(const InputData &data, Tree &tree, BuildMode mode)
             return true;
         }
 
-        std::vector<int> remaining = active, next;
+        std::vector<std::vector<int>> groups = grouping == KMEANS
+            ? group_kmeans(active, data, tree, max_fanout)
+            : group_greedy(active, data, tree, max_fanout);
+
+        std::vector<int> next;
         bool merged = false;
-        while(!remaining.empty()){
-            // 從離 SRC 最遠的點開始，把離它最近的點一個一個加進來
-            auto far = std::max_element(remaining.begin(), remaining.end(),
-                                        [&](int a, int b){ return dist_src(a) < dist_src(b); });
-            int seed = *far;
-            remaining.erase(far);
-            const Pin sp = tree.nodes[seed].pos;
-            std::sort(remaining.begin(), remaining.end(), [&](int a, int b){
-                return calculate_distance(sp, tree.nodes[a].pos) < calculate_distance(sp, tree.nodes[b].pos);
-            });
-
-            std::vector<int> group = {seed};
-            for(int v : remaining){
-                if((int)group.size() >= max_fanout)
-                    break;
-                group.push_back(v);
-                if(cheapest_type(group, tree, data) < 0)
-                    group.pop_back();
-            }
-            for(size_t k = 1 ; k < group.size() ; k++)
-                remaining.erase(std::find(remaining.begin(), remaining.end(), group[k]));
-
+        for(const std::vector<int> &group : groups){
             // 只有一個點就不放 buffer，直接留到上一層
             int t = -1;
             Pin pos;
-            if(group.size() > 1 && mode == BALANCED_TYPE){
+            if(group.size() > 1 && placement == BALANCED_TYPE){
                 int sd = sum_dist(median_pos(group, tree), group, tree);
                 long long best_val = LLONG_MAX;
                 for(size_t i = 0 ; i < data.buflib.size() ; i++){
@@ -442,7 +564,7 @@ bool build_tree(const InputData &data, Tree &tree, BuildMode mode)
             else if(group.size() > 1){
                 t = cheapest_type(group, tree, data);
                 int skew;
-                bool placed = t >= 0 && (mode == NAIVE
+                bool placed = t >= 0 && (placement == NAIVE
                     ? place_buffer(group, data.buflib[t].length, data, tree, occupied, pos)
                     : place_balanced(group, data.buflib[t].length, data, tree, occupied, pos, skew));
                 if(!placed)
@@ -686,14 +808,16 @@ int main(int argc, char* argv[])
     TreeInfo info;
     Result res;
     bool ok = false;
-    const char *mode_name[] = {"naive", "balanced_cheap", "balanced_type"};
-    for(BuildMode mode : {NAIVE, BALANCED_CHEAP, BALANCED_TYPE}){
+    const char *grouping_name[] = {"greedy", "kmeans"};
+    const char *placement_name[] = {"naive", "balanced_cheap", "balanced_type"};
+    for(Grouping g : {GREEDY, KMEANS})
+    for(Placement p : {NAIVE, BALANCED_CHEAP, BALANCED_TYPE}){
         Tree t;
-        if(!build_tree(data, t, mode))
+        if(!build_tree(data, t, g, p))
             continue;
         TreeInfo ti = analyze_tree(data, t);
         Result r = evaluate(data, t, ti);
-        std::cerr << mode_name[mode] << ": cost " << r.cost
+        std::cerr << grouping_name[g] << " + " << placement_name[p] << ": cost " << r.cost
                   << ", skew " << r.t_max - r.t_min << ", Score " << r.score << '\n';
         if(!ok || r.score < res.score){
             tree = t;

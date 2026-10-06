@@ -10,6 +10,8 @@
 #include <climits>
 #include <cstdlib>
 #include <cmath>
+#include <random>
+#include <chrono>
 #include <err.h>
 typedef struct buffer
 {
@@ -391,13 +393,22 @@ static std::vector<std::vector<int>> group_greedy(std::vector<int> remaining, co
     return groups;
 }
 
-// 有容量限制的 k-means：k = ceil(n / max_fanout)，每群最多 max_fanout 個點，
-// 中心用中位數（Manhattan 距離下的最佳中心）。分完後帶不動的群，把最遠的點踢出去自成一群
+// 有容量限制的 k-means：每群最多 max_fanout 個點，中心用中位數（Manhattan 距離下的最佳中心）。
+// k 用 greedy 分群的平均群大小來估，因為 length 限制通常讓一群塞不滿 max_fanout。
+// 分完後帶不動的群，把最遠的點踢出去，再試著塞進附近還有空間的群
 static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active, const InputData &data,
                                                   const Tree &tree, int max_fanout)
 {
     int n = active.size();
-    int k = (n + max_fanout - 1) / max_fanout;
+    int pts = 0, cnt = 0;
+    for(const std::vector<int> &g : group_greedy(active, data, tree, max_fanout))
+        if(g.size() > 1){
+            pts += g.size();
+            cnt++;
+        }
+    double avg = cnt ? (double)pts / cnt : max_fanout;
+    int k = std::max((n + max_fanout - 1) / max_fanout, (int)std::ceil(n / avg));
+    k = std::min(k, n);
     auto pos = [&](int i){ return tree.nodes[active[i]].pos; };
 
     // 初始中心：farthest-first，從離 SRC 最遠的點開始
@@ -475,23 +486,77 @@ static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active
     }
 
     std::vector<std::vector<int>> groups(k), result;
+    std::vector<int> kicked;
     for(int i = 0 ; i < n ; i++)
         groups[assign[i]].push_back(active[i]);
     for(std::vector<int> &g : groups){
-        if(g.empty())
-            continue;
         // length 超過：把離中位數最遠的點踢出去
         while(g.size() > 1 && cheapest_type(g, tree, data) < 0){
             Pin m = median_pos(g, tree);
             auto far = std::max_element(g.begin(), g.end(), [&](int a, int b){
                 return calculate_distance(m, tree.nodes[a].pos) < calculate_distance(m, tree.nodes[b].pos);
             });
-            result.push_back({*far});
+            kicked.push_back(*far);
             g.erase(far);
         }
-        result.push_back(g);
     }
+
+    // 被踢出去的點：由近到遠試其他群，加進去還帶得動就放，都不行才自成一群
+    for(int v : kicked){
+        const Pin p = tree.nodes[v].pos;
+        std::vector<std::pair<int,int>> near;     // (到群中位數的距離, 群 index)
+        for(int c = 0 ; c < k ; c++)
+            if(!groups[c].empty() && (int)groups[c].size() < max_fanout)
+                near.push_back({calculate_distance(p, median_pos(groups[c], tree)), c});
+        std::sort(near.begin(), near.end());
+        bool placed = false;
+        for(size_t j = 0 ; j < near.size() && j < 16 && !placed ; j++){
+            std::vector<int> &g = groups[near[j].second];
+            g.push_back(v);
+            if(cheapest_type(g, tree, data) >= 0)
+                placed = true;
+            else
+                g.pop_back();
+        }
+        if(!placed)
+            groups.push_back({v});
+    }
+
+    for(std::vector<int> &g : groups)
+        if(!g.empty())
+            result.push_back(g);
     return result;
+}
+
+double g_t0_ratio = 0.00002;    // 初始溫度 = max(2, 這個比例 * 初始 Score)，可用 --t0 調整
+bool g_stats = false;          // 執行時加 --stats 才印分群統計
+
+// 印出第一層分群的統計：每群 pin 數的分布、Σd（中位數到群內各點的距離和）的平均與最大值、單點群數量
+static void print_group_stats(const char *name, const std::vector<std::vector<int>> &groups, const Tree &tree)
+{
+    std::vector<int> hist;
+    long long sd_total = 0;
+    int sd_max = 0, multi = 0, single = 0;
+    for(const std::vector<int> &g : groups){
+        if(g.size() >= hist.size())
+            hist.resize(g.size() + 1, 0);
+        hist[g.size()]++;
+        if(g.size() == 1){
+            single++;
+            continue;
+        }
+        int sd = sum_dist(median_pos(g, tree), g, tree);
+        sd_total += sd;
+        sd_max = std::max(sd_max, sd);
+        multi++;
+    }
+    std::cerr << "[" << name << "] groups " << groups.size() << ", size distribution:";
+    for(size_t s = 1 ; s < hist.size() ; s++)
+        if(hist[s])
+            std::cerr << " " << s << "x" << hist[s];
+    std::cerr << "\n  sum_d (groups with >1 pin): avg " << std::fixed << std::setprecision(1)
+              << (multi ? (double)sd_total / multi : 0.0) << ", max " << sd_max
+              << "\n  single-pin groups: " << single << '\n';
 }
 
 // 由下往上建樹：每一層把節點分群，每群放一個 buffer，直到 SRC 能直接帶剩下的所有節點
@@ -535,6 +600,9 @@ bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement 
         std::vector<std::vector<int>> groups = grouping == KMEANS
             ? group_kmeans(active, data, tree, max_fanout)
             : group_greedy(active, data, tree, max_fanout);
+        // 分群不受 placement 影響，只在 NAIVE 那次印，避免重複
+        if(g_stats && iter == 0 && placement == NAIVE)
+            print_group_stats(grouping == KMEANS ? "kmeans" : "greedy", groups, tree);
 
         std::vector<int> next;
         bool merged = false;
@@ -786,9 +854,386 @@ Result evaluate(const InputData &data, const Tree &tree, const TreeInfo &info)
     return r;
 }
 
+// ---------------- Local search（simulated annealing） ----------------
+// 在建好的合法樹上反覆做小修改，每次只檢查受影響節點的 F/L，不合法或沒被接受就還原。
+// 修改種類：移動 buffer、換 type、換 parent（sink 或整棵子樹）、刪掉只有 1 個 child 的 buffer
+class LocalSearch{
+public:
+    LocalSearch(const InputData &d, const Tree &tree, unsigned seed) : data(d), rng(seed)
+    {
+        num_sinks = tree.num_sinks;
+        int n = tree.nodes.size();
+        src = n;                                // SRC 放在最後一個 index
+        pos.resize(n + 1);
+        type.resize(n + 1);
+        parent.assign(n + 1, -1);
+        ch.resize(n + 1);
+        dead.assign(n + 1, 0);
+        saved.assign(n + 1, 0);
+        for(int v = 0 ; v < n ; v++){
+            pos[v] = tree.nodes[v].pos;
+            type[v] = tree.nodes[v].type;
+            ch[v] = tree.nodes[v].children;
+            occ.insert(key(pos[v]));
+            if(type[v] >= 0)
+                buffers.push_back(v);
+        }
+        pos[src] = data.src;
+        type[src] = -2;
+        ch[src] = tree.src_children;
+        occ.insert(key(pos[src]));
+        for(int u = 0 ; u <= n ; u++)
+            for(int v : ch[u])
+                parent[v] = u;
+    }
+
+    // 跑到時間用完（max_iters > 0 時改成跑固定次數，結果可重現），回傳看過的最佳解
+    Tree run(double seconds, long long max_iters)
+    {
+        auto start = std::chrono::steady_clock::now();
+        long long cur = eval();
+        long long best = cur;
+        Snapshot best_state = snapshot();
+        double t0 = std::max(2.0, g_t0_ratio * cur), t_end = 0.01, temp = t0;
+        int rmax = std::max(2, std::max(data.dim_x, data.dim_y) / 10);
+        std::uniform_real_distribution<double> uni(0.0, 1.0);
+
+        long long iter = 0, accepted = 0;
+        while(true){
+            if((iter & 255) == 0){
+                double progress;            // 0 → 1，用來指數降溫
+                if(max_iters > 0)
+                    progress = (double)iter / max_iters;
+                else
+                    progress = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() / seconds;
+                if(progress >= 1.0)
+                    break;
+                temp = t0 * std::pow(t_end / t0, progress);
+            }
+            iter++;
+
+            std::vector<int> affected;
+            bool done = false;
+            int r = std::max(1, (int)(rmax * temp / t0));
+            double pick = uni(rng);
+            if(pick < 0.35)      done = move_buffer(r, affected);
+            else if(pick < 0.45) done = change_type(affected);
+            else if(pick < 0.90) done = reassign(affected);
+            else                 done = splice(affected);
+            if(!done){
+                rollback();
+                continue;
+            }
+            bool legal = true;
+            for(int u : affected)
+                if(!dead[u] && !legal_node(u)){
+                    legal = false;
+                    break;
+                }
+            if(!legal){
+                rollback();
+                continue;
+            }
+            long long nxt = eval();
+            long long delta = nxt - cur;
+            if(delta <= 0 || uni(rng) < std::exp(-delta / temp)){
+                commit();
+                cur = nxt;
+                accepted++;
+                if(cur < best){
+                    best = cur;
+                    best_state = snapshot();
+                }
+            }
+            else
+                rollback();
+        }
+        std::cerr << "local search: " << iter << " iterations, " << accepted << " accepted\n";
+        restore(best_state);
+        return to_tree();
+    }
+
+private:
+    typedef struct saved_node{
+        int v;
+        Pin pos;
+        int type;
+        int parent;
+        std::vector<int> ch;
+        char dead;
+    }SavedNode;
+
+    typedef struct snapshot_t{
+        std::vector<Pin> pos;
+        std::vector<int> type, parent;
+        std::vector<std::vector<int>> ch;
+        std::vector<char> dead;
+    }Snapshot;
+
+    const InputData &data;
+    std::mt19937 rng;
+    int num_sinks, src;
+    std::vector<Pin> pos;
+    std::vector<int> type, parent;      // type: -1 sink, -2 SRC, >=0 buffer
+    std::vector<std::vector<int>> ch;
+    std::vector<char> dead, saved;
+    std::vector<int> buffers;           // 所有 buffer 的 index（包含已刪除的）
+    Occupied occ;
+    std::vector<SavedNode> undo;
+    int tmin_sink = 0, tmax_sink = 0;
+
+    static std::pair<int,int> key(const Pin &p){ return {p.x, p.y}; }
+
+    int rand_int(int lo, int hi){ return std::uniform_int_distribution<int>(lo, hi)(rng); }
+
+    int fanout_limit(int u) const { return u == src ? data.src_fanout : data.buflib[type[u]].fanout; }
+    int length_limit(int u) const { return u == src ? data.src_length : data.buflib[type[u]].length; }
+
+    bool legal_node(int u) const
+    {
+        if(type[u] == -1)
+            return true;
+        if(u != src && ch[u].empty())
+            return false;
+        if((int)ch[u].size() > fanout_limit(u))
+            return false;
+        int len = 0;
+        for(int v : ch[u])
+            len += calculate_distance(pos[u], pos[v]);
+        return len <= length_limit(u);
+    }
+
+    // 修改前先存下節點原本的狀態，一次修改裡每個節點只存一次
+    void save(int v)
+    {
+        if(saved[v])
+            return;
+        saved[v] = 1;
+        undo.push_back({v, pos[v], type[v], parent[v], ch[v], dead[v]});
+    }
+
+    void commit()
+    {
+        for(const SavedNode &s : undo)
+            saved[s.v] = 0;
+        undo.clear();
+    }
+
+    void rollback()
+    {
+        for(const SavedNode &s : undo)
+            if(!dead[s.v])
+                occ.erase(key(pos[s.v]));
+        for(const SavedNode &s : undo){
+            pos[s.v] = s.pos;
+            type[s.v] = s.type;
+            parent[s.v] = s.parent;
+            ch[s.v] = s.ch;
+            dead[s.v] = s.dead;
+        }
+        for(const SavedNode &s : undo)
+            if(!dead[s.v])
+                occ.insert(key(pos[s.v]));
+        commit();
+    }
+
+    Snapshot snapshot() const { return {pos, type, parent, ch, dead}; }
+
+    void restore(const Snapshot &s)
+    {
+        pos = s.pos;
+        type = s.type;
+        parent = s.parent;
+        ch = s.ch;
+        dead = s.dead;
+    }
+
+    // 算整棵樹的 Score，順便記下 arrival time 最小 / 最大的 sink
+    long long eval()
+    {
+        int t_max = INT_MIN, t_min = INT_MAX;
+        long long cost = 0;
+        std::vector<std::pair<int,int>> stack = {{src, 0}};
+        while(!stack.empty()){
+            auto [u, t] = stack.back();
+            stack.pop_back();
+            if(type[u] == -1){
+                if(t > t_max){ t_max = t; tmax_sink = u; }
+                if(t < t_min){ t_min = t; tmin_sink = u; }
+                continue;
+            }
+            if(u != src)
+                cost += data.buflib[type[u]].cost;
+            for(int v : ch[u])
+                stack.push_back({v, t + calculate_distance(pos[u], pos[v])});
+        }
+        return cost + (long long)data.w_skew * (t_max - t_min);
+    }
+
+    int random_buffer()
+    {
+        for(int tries = 0 ; tries < 20 && !buffers.empty() ; tries++){
+            int b = buffers[rand_int(0, buffers.size() - 1)];
+            if(!dead[b])
+                return b;
+        }
+        return -1;
+    }
+
+    // 把空掉的 buffer 刪掉，parent 也空掉的話一路往上刪
+    void remove_if_empty(int u)
+    {
+        while(u != src && ch[u].empty()){
+            int p = parent[u];
+            save(u);
+            save(p);
+            dead[u] = 1;
+            occ.erase(key(pos[u]));
+            ch[p].erase(std::find(ch[p].begin(), ch[p].end(), u));
+            parent[u] = -1;
+            u = p;
+        }
+    }
+
+    bool move_buffer(int r, std::vector<int> &affected)
+    {
+        int b = random_buffer();
+        if(b < 0)
+            return false;
+        Pin p = {pos[b].x + rand_int(-r, r), pos[b].y + rand_int(-r, r)};
+        if(p.x < 0 || p.y < 0 || p.x > data.dim_x || p.y > data.dim_y || occ.count(key(p)))
+            return false;
+        save(b);
+        occ.erase(key(pos[b]));
+        pos[b] = p;
+        occ.insert(key(p));
+        affected = {b, parent[b]};
+        return true;
+    }
+
+    bool change_type(std::vector<int> &affected)
+    {
+        int b = random_buffer();
+        if(b < 0 || data.buflib.size() < 2)
+            return false;
+        int t = rand_int(0, data.buflib.size() - 2);
+        if(t >= type[b])
+            t++;
+        save(b);
+        type[b] = t;
+        affected = {b};
+        return true;
+    }
+
+    // 把 v（sink 或 buffer 連同它的子樹）換到另一個 parent 底下
+    bool reassign(std::vector<int> &affected)
+    {
+        int v;
+        double pick = std::uniform_real_distribution<double>(0.0, 1.0)(rng);
+        if(pick < 0.3)
+            v = tmin_sink;
+        else if(pick < 0.5)
+            v = tmax_sink;
+        else if(pick < 0.8)
+            v = rand_int(0, num_sinks - 1);
+        else
+            v = random_buffer();
+        if(v < 0)
+            return false;
+
+        // 隨機抽一些 parent 候選，從最近的 3 個裡挑一個
+        std::vector<std::pair<int,int>> cand;
+        for(int k = 0 ; k < 24 ; k++){
+            int p = k == 0 ? src : random_buffer();
+            if(p >= 0 && p != parent[v] && p != v)
+                cand.push_back({calculate_distance(pos[v], pos[p]), p});
+        }
+        if(cand.empty())
+            return false;
+        std::sort(cand.begin(), cand.end());
+        cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
+        int p = cand[rand_int(0, std::min<int>(3, cand.size()) - 1)].second;
+
+        // p 不能在 v 的子樹裡，不然會變成 cycle
+        for(int a = p ; a != -1 ; a = parent[a])
+            if(a == v)
+                return false;
+
+        int old = parent[v];
+        save(v);
+        save(old);
+        save(p);
+        ch[old].erase(std::find(ch[old].begin(), ch[old].end(), v));
+        ch[p].push_back(v);
+        parent[v] = p;
+        remove_if_empty(old);
+        affected = {p};
+        return true;
+    }
+
+    // 只有 1 個 child 的 buffer：刪掉，child 直接接到它的 parent
+    bool splice(std::vector<int> &affected)
+    {
+        int b = random_buffer();
+        if(b < 0 || ch[b].size() != 1)
+            return false;
+        int c = ch[b][0], p = parent[b];
+        save(b);
+        save(c);
+        save(p);
+        *std::find(ch[p].begin(), ch[p].end(), b) = c;
+        parent[c] = p;
+        ch[b].clear();
+        parent[b] = -1;
+        dead[b] = 1;
+        occ.erase(key(pos[b]));
+        affected = {p};
+        return true;
+    }
+
+    // 轉回 Tree：刪掉的 buffer 拿掉，剩下的重新編 index
+    Tree to_tree() const
+    {
+        Tree t;
+        t.num_sinks = num_sinks;
+        std::vector<int> remap(src, -1);
+        for(int v = 0 ; v < src ; v++)
+            if(!dead[v]){
+                remap[v] = t.nodes.size();
+                Node n;
+                n.pos = pos[v];
+                n.type = type[v];
+                t.nodes.push_back(n);
+            }
+        for(int v = 0 ; v < src ; v++)
+            if(!dead[v])
+                for(int c : ch[v])
+                    t.nodes[remap[v]].children.push_back(remap[c]);
+        for(int c : ch[src])
+            t.src_children.push_back(remap[c]);
+        return t;
+    }
+};
+
 int main(int argc, char* argv[])
 {
     std::string input_file,output_file;
+    double ls_time = 3.0;          // local search 秒數，--time 0 可關掉
+    long long ls_iters = 0;        // > 0 時改用固定迭代次數，不看時間
+    unsigned ls_seed = 12345;
+    for(int i = 3 ; i < argc ; i++){
+        std::string arg = argv[i];
+        if(arg == "--stats")
+            g_stats = true;
+        else if(arg == "--time" && i + 1 < argc)
+            ls_time = std::atof(argv[++i]);
+        else if(arg == "--t0" && i + 1 < argc)
+            g_t0_ratio = std::atof(argv[++i]);
+        else if(arg == "--iters" && i + 1 < argc)
+            ls_iters = std::atoll(argv[++i]);
+        else if(arg == "--seed" && i + 1 < argc)
+            ls_seed = std::strtoul(argv[++i], nullptr, 10);
+    }
     if(argc >= 3){
         input_file = argv[1];
         output_file = argv[2];
@@ -829,6 +1274,15 @@ int main(int argc, char* argv[])
     if(!ok){
         std::cerr << "Failed to build a legal clock tree\n";
         return 1;
+    }
+
+    if(ls_time > 0 || ls_iters > 0){
+        LocalSearch ls(data, tree, ls_seed);
+        tree = ls.run(ls_time, ls_iters);
+        info = analyze_tree(data, tree);
+        res = evaluate(data, tree, info);
+        std::cerr << "after local search: cost " << res.cost << ", skew " << res.t_max - res.t_min
+                  << ", Score " << res.score << '\n';
     }
     check_legal(data, tree, info);
     if(!write_output(output_file, data, tree, info))

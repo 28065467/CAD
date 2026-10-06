@@ -1,0 +1,4 @@
+make bench                         # 5 種預設設定 × seed 1-5，大約 10 秒
+make bench SEEDS=1-10 ITERS=500000
+python3 test/bench.py --config 500 800 3 300 --seeds 3,7,11
+python3 test/bench.py --time 0     # 關掉 local search，只比較建樹方法

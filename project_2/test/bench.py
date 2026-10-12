@@ -272,7 +272,9 @@ def write_summary_md(path, summary, args, methods):
                 rel = "100%" if k == "naive" else f"{s['pct'][k][2]:.1f}%"
                 f.write(f"| {n}, {dim}, {sf}/{sl} | {s['n']} | {k} | {c:.0f} | {sk:.0f} | {sc:.0f} | {rel} |\n")
         f.write("\n## 各建樹方法的平均 Score\n\n")
-        f.write("| 設定 | " + " | ".join(methods + ["local search"]) + " |\n")
+        f.write("前面各欄是只建樹、還沒跑 local search 的結果，粗體是平均最好的建樹方法。"
+                "最後一欄是每組測資各自挑最好的樹、再跑 local search 之後的平均（也就是最終輸出）。\n\n")
+        f.write("| 設定 | " + " | ".join(methods + ["最佳建樹 + local search"]) + " |\n")
         f.write("|---" * (len(methods) + 2) + "|\n")
         for s in summary:
             n, dim, sf, sl = s["cfg"]

@@ -24,7 +24,9 @@ seeds `1-5`，local search `--iters 300000 --seed 12345`，w_skew 1
 
 ## 各建樹方法的平均 Score
 
-| 設定 | greedy + naive | greedy + balanced_cheap | greedy + balanced_type | kmeans + naive | kmeans + balanced_cheap | kmeans + balanced_type | kmeans(1.5/1.5) + naive | kmeans(1.5/1.5) + balanced_cheap | kmeans(1.5/1.5) + balanced_type | kmeans(0.7/1.5) + naive | kmeans(0.7/1.5) + balanced_cheap | kmeans(0.7/1.5) + balanced_type | local search |
+前面各欄是只建樹、還沒跑 local search 的結果，粗體是平均最好的建樹方法。最後一欄是每組測資各自挑最好的樹、再跑 local search 之後的平均（也就是最終輸出）。
+
+| 設定 | greedy + naive | greedy + balanced_cheap | greedy + balanced_type | kmeans + naive | kmeans + balanced_cheap | kmeans + balanced_type | kmeans(1.5/1.5) + naive | kmeans(1.5/1.5) + balanced_cheap | kmeans(1.5/1.5) + balanced_type | kmeans(0.7/1.5) + naive | kmeans(0.7/1.5) + balanced_cheap | kmeans(0.7/1.5) + balanced_type | 最佳建樹 + local search |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 20, 110, 2/100 | 222 | 169 | 153 | 225 | 160 | 160 | 229 | 169 | 169 | 213 | 145 | **134** | 121 |
 | 200, 500, 3/300 | 2072 | 1880 | 1876 | 1991 | 1807 | 1802 | 1910 | 1756 | **1749** | 2032 | 1869 | 1907 | 1547 |

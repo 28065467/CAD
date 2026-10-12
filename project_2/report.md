@@ -1,3 +1,4 @@
+# Skew
 ## Initial greedy cluster
 使用greedy algorithm因為buffer的fanout越大其分攤下來的cost就越小，所以將整個pin腳視作集合，每次從中取出盡量多且滿足length要求的pin並以最大的buffer做連接，剩下的無法的納入的pin就把他單獨用一buffer連接![alt text](/home/lin/CAD/project_2/Naive_Greedy/image.png)
 ## DME
@@ -10,6 +11,8 @@ k = ceil(n/buffer_max_Fanout)
 k = greedy clustering average size
 ![alt text](/home/lin/CAD/project_2/kmeans/image_kmean_update.png)
 ## Local Search
-對score影響最大的為skew,所以只要找到T_max/min所屬的sink,並對它們附近進行如移動buffer/換buffer type或移動到另一buffer的clock tree下等等的操作就可以提昇score.
-因為在k-means加上averger size clustering就已經在預設的輸入中得到理論最高分了,所以之後的方法都會利用python來產生隨機的測試資料,並且以固定random seed來方便比較效果
+skew只被T_max/min影響,所以只要找到T_max/min所屬的sink,並對它們附近進行如移動buffer/換buffer type或移動到另一buffer的clock tree下等等的操作就可以提昇score.
+因為在k-means加上averger size clustering就已經在預設的輸入中得到的skew已經是理論最低了,所以之後的方法都會利用python來產生隨機的測試資料,並且以固定random seed來方便比較效果
 ![alt text](/home/lin/CAD/project_2/local_search/image.png)
+
+# Cost

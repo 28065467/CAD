@@ -52,67 +52,70 @@ set label "S47" at 569,944 offset 0,-1.2 center tc rgb "red"
 set label "S48" at 460,483 offset 0,-1.2 center tc rgb "red"
 set label "S49" at 29,540 offset 0,-1.2 center tc rgb "red"
 set label "S50" at 667,388 offset 0,-1.2 center tc rgb "red"
-set label "B1" at 777,109 offset 0,-1.2 center tc rgb "red"
-set label "B2" at 775,212 offset 0,-1.2 center tc rgb "red"
-set label "B3" at 720,81 offset 0,-1.2 center tc rgb "red"
-set label "B4" at 769,265 offset 0,-1.2 center tc rgb "red"
-set label "B5" at 788,94 offset 0,-1.2 center tc rgb "red"
-set label "B6" at 588,23 offset 0,-1.2 center tc rgb "red"
-set label "B7" at 766,350 offset 0,-1.2 center tc rgb "red"
-set label "B8" at 768,264 offset 0,-1.2 center tc rgb "red"
-set label "B9" at 567,44 offset 0,-1.2 center tc rgb "red"
-set label "B10" at 765,362 offset 0,-1.2 center tc rgb "red"
-set label "B11" at 665,281 offset 0,-1.2 center tc rgb "red"
-set label "B12" at 519,27 offset 0,-1.2 center tc rgb "red"
-set label "B13" at 920,366 offset 0,-1.2 center tc rgb "red"
-set label "B14" at 756,384 offset 0,-1.2 center tc rgb "red"
-set label "B15" at 634,284 offset 0,-1.2 center tc rgb "red"
-set label "B16" at 683,316 offset 0,-1.2 center tc rgb "red"
-set label "B17" at 382,27 offset 0,-1.2 center tc rgb "red"
-set label "B18" at 962,371 offset 0,-1.2 center tc rgb "red"
-set label "B19" at 751,569 offset 0,-1.2 center tc rgb "red"
-set label "B20" at 452,283 offset 0,-1.2 center tc rgb "red"
-set label "B21" at 296,23 offset 0,-1.2 center tc rgb "red"
-set label "B22" at 741,726 offset 0,-1.2 center tc rgb "red"
-set label "B23" at 761,564 offset 0,-1.2 center tc rgb "red"
-set label "B24" at 413,317 offset 0,-1.2 center tc rgb "red"
-set label "B25" at 211,29 offset 0,-1.2 center tc rgb "red"
-set label "B26" at 301,98 offset 0,-1.2 center tc rgb "red"
-set label "B27" at 693,703 offset 0,-1.2 center tc rgb "red"
-set label "B28" at 792,767 offset 0,-1.2 center tc rgb "red"
-set label "B29" at 741,743 offset 0,-1.2 center tc rgb "red"
-set label "B30" at 623,519 offset 0,-1.2 center tc rgb "red"
-set label "B31" at 233,309 offset 0,-1.2 center tc rgb "red"
-set label "B32" at 521,718 offset 0,-1.2 center tc rgb "red"
-set label "B33" at 922,744 offset 0,-1.2 center tc rgb "red"
-set label "B34" at 740,832 offset 0,-1.2 center tc rgb "red"
-set label "B35" at 484,519 offset 0,-1.2 center tc rgb "red"
-set label "B36" at 430,700 offset 0,-1.2 center tc rgb "red"
-set label "B37" at 777,831 offset 0,-1.2 center tc rgb "red"
-set label "B38" at 739,869 offset 0,-1.2 center tc rgb "red"
-set label "B39" at 357,519 offset 0,-1.2 center tc rgb "red"
-set label "B40" at 484,521 offset 0,-1.2 center tc rgb "red"
-set label "B41" at 867,831 offset 0,-1.2 center tc rgb "red"
-set label "B42" at 685,890 offset 0,-1.2 center tc rgb "red"
-set label "B43" at 176,527 offset 0,-1.2 center tc rgb "red"
-set label "B44" at 875,894 offset 0,-1.2 center tc rgb "red"
-set label "B45" at 526,905 offset 0,-1.2 center tc rgb "red"
-set label "B46" at 174,621 offset 0,-1.2 center tc rgb "red"
-set label "B47" at 97,529 offset 0,-1.2 center tc rgb "red"
-set label "B48" at 441,907 offset 0,-1.2 center tc rgb "red"
-set label "B49" at 525,915 offset 0,-1.2 center tc rgb "red"
-set label "B50" at 199,630 offset 0,-1.2 center tc rgb "red"
-set label "B51" at 137,603 offset 0,-1.2 center tc rgb "red"
-set label "B52" at 58,512 offset 0,-1.2 center tc rgb "red"
-set label "B53" at 256,910 offset 0,-1.2 center tc rgb "red"
-set label "B54" at 515,915 offset 0,-1.2 center tc rgb "red"
-set label "B55" at 227,768 offset 0,-1.2 center tc rgb "red"
-set label "B56" at 214,627 offset 0,-1.2 center tc rgb "red"
-set label "B57" at 90,621 offset 0,-1.2 center tc rgb "red"
-set label "B58" at 252,948 offset 0,-1.2 center tc rgb "red"
-set label "B59" at 213,914 offset 0,-1.2 center tc rgb "red"
-set label "B60" at 473,967 offset 0,-1.2 center tc rgb "red"
-set label "B61" at 14,658 offset 0,-1.2 center tc rgb "red"
+set label "B1" at 788,106 offset 0,-1.2 center tc rgb "red"
+set label "B2" at 775,47 offset 0,-1.2 center tc rgb "red"
+set label "B3" at 781,113 offset 0,-1.2 center tc rgb "red"
+set label "B4" at 615,33 offset 0,-1.2 center tc rgb "red"
+set label "B5" at 783,299 offset 0,-1.2 center tc rgb "red"
+set label "B6" at 430,34 offset 0,-1.2 center tc rgb "red"
+set label "B7" at 869,196 offset 0,-1.2 center tc rgb "red"
+set label "B8" at 783,300 offset 0,-1.2 center tc rgb "red"
+set label "B9" at 406,50 offset 0,-1.2 center tc rgb "red"
+set label "B10" at 782,474 offset 0,-1.2 center tc rgb "red"
+set label "B11" at 288,49 offset 0,-1.2 center tc rgb "red"
+set label "B12" at 819,441 offset 0,-1.2 center tc rgb "red"
+set label "B13" at 782,484 offset 0,-1.2 center tc rgb "red"
+set label "B14" at 187,42 offset 0,-1.2 center tc rgb "red"
+set label "B15" at 283,122 offset 0,-1.2 center tc rgb "red"
+set label "B16" at 777,637 offset 0,-1.2 center tc rgb "red"
+set label "B17" at 775,459 offset 0,-1.2 center tc rgb "red"
+set label "B18" at 771,662 offset 0,-1.2 center tc rgb "red"
+set label "B19" at 776,692 offset 0,-1.2 center tc rgb "red"
+set label "B20" at 786,336 offset 0,-1.2 center tc rgb "red"
+set label "B21" at 730,448 offset 0,-1.2 center tc rgb "red"
+set label "B22" at 619,647 offset 0,-1.2 center tc rgb "red"
+set label "B23" at 775,666 offset 0,-1.2 center tc rgb "red"
+set label "B24" at 776,878 offset 0,-1.2 center tc rgb "red"
+set label "B25" at 846,320 offset 0,-1.2 center tc rgb "red"
+set label "B26" at 787,256 offset 0,-1.2 center tc rgb "red"
+set label "B27" at 673,423 offset 0,-1.2 center tc rgb "red"
+set label "B28" at 441,658 offset 0,-1.2 center tc rgb "red"
+set label "B29" at 934,685 offset 0,-1.2 center tc rgb "red"
+set label "B30" at 850,886 offset 0,-1.2 center tc rgb "red"
+set label "B31" at 775,880 offset 0,-1.2 center tc rgb "red"
+set label "B32" at 795,258 offset 0,-1.2 center tc rgb "red"
+set label "B33" at 540,417 offset 0,-1.2 center tc rgb "red"
+set label "B34" at 400,666 offset 0,-1.2 center tc rgb "red"
+set label "B35" at 442,636 offset 0,-1.2 center tc rgb "red"
+set label "B36" at 433,661 offset 0,-1.2 center tc rgb "red"
+set label "B37" at 624,888 offset 0,-1.2 center tc rgb "red"
+set label "B38" at 750,877 offset 0,-1.2 center tc rgb "red"
+set label "B39" at 633,264 offset 0,-1.2 center tc rgb "red"
+set label "B40" at 381,439 offset 0,-1.2 center tc rgb "red"
+set label "B41" at 259,667 offset 0,-1.2 center tc rgb "red"
+set label "B42" at 463,585 offset 0,-1.2 center tc rgb "red"
+set label "B43" at 498,897 offset 0,-1.2 center tc rgb "red"
+set label "B44" at 762,822 offset 0,-1.2 center tc rgb "red"
+set label "B45" at 634,265 offset 0,-1.2 center tc rgb "red"
+set label "B46" at 207,429 offset 0,-1.2 center tc rgb "red"
+set label "B47" at 191,657 offset 0,-1.2 center tc rgb "red"
+set label "B48" at 252,667 offset 0,-1.2 center tc rgb "red"
+set label "B49" at 430,904 offset 0,-1.2 center tc rgb "red"
+set label "B50" at 509,901 offset 0,-1.2 center tc rgb "red"
+set label "B51" at 209,453 offset 0,-1.2 center tc rgb "red"
+set label "B52" at 218,348 offset 0,-1.2 center tc rgb "red"
+set label "B53" at 184,641 offset 0,-1.2 center tc rgb "red"
+set label "B54" at 224,694 offset 0,-1.2 center tc rgb "red"
+set label "B55" at 263,619 offset 0,-1.2 center tc rgb "red"
+set label "B56" at 254,910 offset 0,-1.2 center tc rgb "red"
+set label "B57" at 506,947 offset 0,-1.2 center tc rgb "red"
+set label "B58" at 505,842 offset 0,-1.2 center tc rgb "red"
+set label "B59" at 40,461 offset 0,-1.2 center tc rgb "red"
+set label "B60" at 23,670 offset 0,-1.2 center tc rgb "red"
+set label "B61" at 215,911 offset 0,-1.2 center tc rgb "red"
+set label "B62" at 257,957 offset 0,-1.2 center tc rgb "red"
+set label "B63" at 486,951 offset 0,-1.2 center tc rgb "red"
+set label "B64" at 37,493 offset 0,-1.2 center tc rgb "red"
 
 plot '-' with points pt 9 ps 1.5 notitle, \
      '-' with points pt 7 ps 1.5 notitle, \
@@ -173,67 +176,70 @@ e
 29 540 # T49
 667 388 # T50
 e
-769 265 # B4
-567 44 # B9
-665 281 # B11
-382 27 # B17
-962 371 # B18
-452 283 # B20
-301 98 # B26
-741 743 # B29
-233 309 # B31
-740 832 # B34
-777 831 # B37
-739 869 # B38
-484 521 # B40
-867 831 # B41
-174 621 # B46
-97 529 # B47
-525 915 # B49
-137 603 # B51
-256 910 # B53
-473 967 # B60
-14 658 # B61
+788 106 # B1
+782 474 # B10
+283 122 # B15
+777 637 # B16
+730 448 # B21
+776 878 # B24
+787 256 # B26
+441 658 # B28
+442 636 # B35
+433 661 # B36
+750 877 # B38
+259 667 # B41
+498 897 # B43
+218 348 # B52
+263 619 # B55
+254 910 # B56
+506 947 # B57
+505 842 # B58
+40 461 # B59
+23 670 # B60
+486 951 # B63
 e
-768 264 # B8
-526 905 # B45
-227 768 # B55
-90 621 # B57
-252 948 # B58
+406 50 # B9
+207 429 # B46
+252 667 # B48
+257 957 # B62
+37 493 # B64
 e
-777 109 # B1
-775 212 # B2
-720 81 # B3
-788 94 # B5
-588 23 # B6
-766 350 # B7
-765 362 # B10
-519 27 # B12
-920 366 # B13
-756 384 # B14
-634 284 # B15
-683 316 # B16
-751 569 # B19
-296 23 # B21
-741 726 # B22
-761 564 # B23
-413 317 # B24
-211 29 # B25
-693 703 # B27
-792 767 # B28
-623 519 # B30
-521 718 # B32
-922 744 # B33
-484 519 # B35
-430 700 # B36
-357 519 # B39
-685 890 # B42
-176 527 # B43
-875 894 # B44
-441 907 # B48
-199 630 # B50
-58 512 # B52
-515 915 # B54
-214 627 # B56
-213 914 # B59
+775 47 # B2
+781 113 # B3
+615 33 # B4
+783 299 # B5
+430 34 # B6
+869 196 # B7
+783 300 # B8
+288 49 # B11
+819 441 # B12
+782 484 # B13
+187 42 # B14
+775 459 # B17
+771 662 # B18
+776 692 # B19
+786 336 # B20
+619 647 # B22
+775 666 # B23
+846 320 # B25
+673 423 # B27
+934 685 # B29
+850 886 # B30
+775 880 # B31
+795 258 # B32
+540 417 # B33
+400 666 # B34
+624 888 # B37
+633 264 # B39
+381 439 # B40
+463 585 # B42
+762 822 # B44
+634 265 # B45
+191 657 # B47
+430 904 # B49
+509 901 # B50
+209 453 # B51
+184 641 # B53
+224 694 # B54
+215 911 # B61
 e

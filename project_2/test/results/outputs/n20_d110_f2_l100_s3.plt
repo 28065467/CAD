@@ -22,10 +22,12 @@ set label "S17" at 50,81 offset 0,-1.2 center tc rgb "red"
 set label "S18" at 1,85 offset 0,-1.2 center tc rgb "red"
 set label "S19" at 29,81 offset 0,-1.2 center tc rgb "red"
 set label "S20" at 70,60 offset 0,-1.2 center tc rgb "red"
-set label "B1" at 39,24 offset 0,-1.2 center tc rgb "red"
-set label "B2" at 82,14 offset 0,-1.2 center tc rgb "red"
-set label "B3" at 67,72 offset 0,-1.2 center tc rgb "red"
-set label "B4" at 29,72 offset 0,-1.2 center tc rgb "red"
+set label "B1" at 43,39 offset 0,-1.2 center tc rgb "red"
+set label "B2" at 43,65 offset 0,-1.2 center tc rgb "red"
+set label "B3" at 82,14 offset 0,-1.2 center tc rgb "red"
+set label "B4" at 16,77 offset 0,-1.2 center tc rgb "red"
+set label "B5" at 59,91 offset 0,-1.2 center tc rgb "red"
+set label "B6" at 81,60 offset 0,-1.2 center tc rgb "red"
 
 plot '-' with points pt 9 ps 1.5 notitle, \
      '-' with points pt 7 ps 1.5 notitle, \
@@ -56,10 +58,12 @@ e
 29 81 # T19
 70 60 # T20
 e
+43 39 # B1
+81 60 # B6
 e
+82 14 # B3
+16 77 # B4
+59 91 # B5
 e
-39 24 # B1
-82 14 # B2
-67 72 # B3
-29 72 # B4
+43 65 # B2
 e

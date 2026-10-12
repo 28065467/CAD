@@ -397,7 +397,7 @@ static std::vector<std::vector<int>> group_greedy(std::vector<int> remaining, co
 // k 用 greedy 分群的平均群大小來估，因為 length 限制通常讓一群塞不滿 max_fanout。
 // 分完後帶不動的群，把最遠的點踢出去，再試著塞進附近還有空間的群
 static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active, const InputData &data,
-                                                  const Tree &tree, int max_fanout)
+                                                  const Tree &tree, int max_fanout, double size_scale)
 {
     int n = active.size();
     int pts = 0, cnt = 0;
@@ -406,9 +406,9 @@ static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active
             pts += g.size();
             cnt++;
         }
-    double avg = cnt ? (double)pts / cnt : max_fanout;
+    double avg = (cnt ? (double)pts / cnt : max_fanout) * size_scale;
     int k = std::max((n + max_fanout - 1) / max_fanout, (int)std::ceil(n / avg));
-    k = std::min(k, n);
+    k = std::min(k, std::max(1, n - 1));   // 至少留一群有 2 個點，不然這層永遠合併不起來
     auto pos = [&](int i){ return tree.nodes[active[i]].pos; };
 
     // 初始中心：farthest-first，從離 SRC 最遠的點開始
@@ -559,8 +559,10 @@ static void print_group_stats(const char *name, const std::vector<std::vector<in
               << "\n  single-pin groups: " << single << '\n';
 }
 
-// 由下往上建樹：每一層把節點分群，每群放一個 buffer，直到 SRC 能直接帶剩下的所有節點
-bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement placement)
+// 由下往上建樹：每一層把節點分群，每群放一個 buffer，直到 SRC 能直接帶剩下的所有節點。
+// scale_leaf / scale_upper：k-means 在第一層 / 上層的群大小倍率（> 1 群比較大、buffer 比較少）
+bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement placement,
+                double scale_leaf = 1.0, double scale_upper = 1.0)
 {
     tree.nodes.clear();
     tree.num_sinks = data.sinks.size();
@@ -598,7 +600,7 @@ bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement 
         }
 
         std::vector<std::vector<int>> groups = grouping == KMEANS
-            ? group_kmeans(active, data, tree, max_fanout)
+            ? group_kmeans(active, data, tree, max_fanout, iter == 0 ? scale_leaf : scale_upper)
             : group_greedy(active, data, tree, max_fanout);
         // 分群不受 placement 影響，只在 NAIVE 那次印，避免重複
         if(g_stats && iter == 0 && placement == NAIVE)
@@ -1253,16 +1255,24 @@ int main(int argc, char* argv[])
     TreeInfo info;
     Result res;
     bool ok = false;
-    const char *grouping_name[] = {"greedy", "kmeans"};
+    // k-means 的群大小倍率（第一層, 上層）。沒有一組在所有測資都最好：
+    // 中大型測資喜歡大一點的群（1.5），很小的測資第一層喜歡小一點的群（0.7）
+    struct Variant{ Grouping g; double leaf, upper; const char *name; };
+    const Variant variants[] = {
+        {GREEDY, 1.0, 1.0, "greedy"},
+        {KMEANS, 1.0, 1.0, "kmeans"},
+        {KMEANS, 1.5, 1.5, "kmeans(1.5/1.5)"},
+        {KMEANS, 0.7, 1.5, "kmeans(0.7/1.5)"},
+    };
     const char *placement_name[] = {"naive", "balanced_cheap", "balanced_type"};
-    for(Grouping g : {GREEDY, KMEANS})
+    for(const Variant &v : variants)
     for(Placement p : {NAIVE, BALANCED_CHEAP, BALANCED_TYPE}){
         Tree t;
-        if(!build_tree(data, t, g, p))
+        if(!build_tree(data, t, v.g, p, v.leaf, v.upper))
             continue;
         TreeInfo ti = analyze_tree(data, t);
         Result r = evaluate(data, t, ti);
-        std::cerr << grouping_name[g] << " + " << placement_name[p] << ": cost " << r.cost
+        std::cerr << v.name << " + " << placement_name[p] << ": cost " << r.cost
                   << ", skew " << r.t_max - r.t_min << ", Score " << r.score << '\n';
         if(!ok || r.score < res.score){
             tree = t;

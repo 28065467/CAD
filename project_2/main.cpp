@@ -362,32 +362,147 @@ enum Placement{
     BALANCED_TYPE   // 每種 type 都試，選 cost + w_skew * 子樹 skew 最小的
 };
 
-// 貪婪分群：從離 SRC 最遠的點開始，把離它最近的點一個一個加進來，直到 buffer 帶不動
-static std::vector<std::vector<int>> group_greedy(std::vector<int> remaining, const InputData &data,
+// 均勻格子：把點依座標放進邊長 cell 的格子，找鄰居時只看附近的格子，不用掃過全部的點
+class PointGrid{
+public:
+    PointGrid(const std::vector<Pin> &pts) : pts(pts)
+    {
+        int n = std::max<int>(1, pts.size());
+        x0 = y0 = INT_MAX;
+        int x1 = INT_MIN, y1 = INT_MIN;
+        for(const Pin &p : pts){
+            x0 = std::min(x0, p.x);
+            y0 = std::min(y0, p.y);
+            x1 = std::max(x1, p.x);
+            y1 = std::max(y1, p.y);
+        }
+        if(pts.empty())
+            x0 = y0 = x1 = y1 = 0;
+        // 平均每格大約 2 個點
+        double area = (double)(x1 - x0 + 1) * (y1 - y0 + 1);
+        cell = std::max(1, (int)std::ceil(std::sqrt(2.0 * area / n)));
+        nx = (x1 - x0) / cell + 1;
+        ny = (y1 - y0) / cell + 1;
+        cells.assign((size_t)nx * ny, {});
+        for(size_t i = 0 ; i < pts.size() ; i++)
+            cells[index(cx(pts[i].x), cy(pts[i].y))].push_back(i);
+    }
+
+    // 找離 q 最近、而且 accept(id) 為 true 的最多 k 個點（距離 <= max_dist），依 (距離, id) 排序。
+    // 由內往外一圈一圈掃格子；第 r 圈之外的點距離一定 >= r * cell，夠了就停
+    template<class Accept>
+    std::vector<std::pair<int,int>> nearest(const Pin &q, int k, int max_dist, Accept accept) const
+    {
+        std::vector<std::pair<int,int>> found;      // (距離, id)
+        int qx = std::clamp(cx(q.x), 0, nx - 1), qy = std::clamp(cy(q.y), 0, ny - 1);
+        // q 在格子範圍外時，要多走幾圈才會碰到格子
+        int offset = std::max({cx(q.x) - qx, qx - cx(q.x), cy(q.y) - qy, qy - cy(q.y)});
+        int max_r = std::max(nx, ny) + offset;
+        for(int r = 0 ; r <= max_r ; r++){
+            for(int gx = qx - r ; gx <= qx + r ; gx++){
+                if(gx < 0 || gx >= nx)
+                    continue;
+                bool edge_x = (gx == qx - r || gx == qx + r);
+                for(int gy = qy - r ; gy <= qy + r ; gy += (edge_x ? 1 : 2 * r)){
+                    if(gy >= 0 && gy < ny)
+                        for(int id : cells[index(gx, gy)]){
+                            if(!accept(id))
+                                continue;
+                            int d = calculate_distance(q, pts[id]);
+                            if(d <= max_dist)
+                                found.push_back({d, id});
+                        }
+                    if(r == 0)
+                        break;
+                }
+            }
+            long long bound = (long long)(r - offset) * cell;   // 下一圈之後的點至少這麼遠
+            if(bound > max_dist)
+                break;
+            if((int)found.size() >= k){
+                std::nth_element(found.begin(), found.begin() + (k - 1), found.end());
+                if(found[k - 1].first <= bound)
+                    break;
+            }
+        }
+        int m = std::min<int>(k, found.size());
+        std::partial_sort(found.begin(), found.begin() + m, found.end());
+        found.resize(m);
+        return found;
+    }
+
+    // 所有和 q 距離 < radius 的點（不排序）
+    template<class Visit>
+    void within(const Pin &q, int radius, Visit visit) const
+    {
+        int gx0 = std::max(0, cx(q.x - radius)), gx1 = std::min(nx - 1, cx(q.x + radius));
+        int gy0 = std::max(0, cy(q.y - radius)), gy1 = std::min(ny - 1, cy(q.y + radius));
+        for(int gx = gx0 ; gx <= gx1 ; gx++)
+            for(int gy = gy0 ; gy <= gy1 ; gy++)
+                for(int id : cells[index(gx, gy)])
+                    if(calculate_distance(q, pts[id]) < radius)
+                        visit(id);
+    }
+
+private:
+    const std::vector<Pin> &pts;
+    int x0, y0, cell, nx, ny;
+    std::vector<std::vector<int>> cells;
+
+    int cx(int x) const { return (int)std::floor((double)(x - x0) / cell); }
+    int cy(int y) const { return (int)std::floor((double)(y - y0) / cell); }
+    size_t index(int gx, int gy) const { return (size_t)gx * ny + gy; }
+};
+
+static int max_buffer_length(const InputData &data)
+{
+    int L = 0;
+    for(const Buffer &b : data.buflib)
+        L = std::max(L, b.length);
+    return L;
+}
+
+// 貪婪分群：從離 SRC 最遠的點開始，把離它最近的點一個一個加進來，直到 buffer 帶不動。
+// 兩個點能放進同一群，距離一定 <= 最大的 L（Σd 至少是它們兩個到中位數的距離和），
+// 所以只要用 grid 找 seed 附近 L 以內最近的幾個點當候選
+static std::vector<std::vector<int>> group_greedy(const std::vector<int> &active, const InputData &data,
                                                   const Tree &tree, int max_fanout)
 {
-    auto dist_src = [&](int v){ return calculate_distance(data.src, tree.nodes[v].pos); };
-    std::vector<std::vector<int>> groups;
-    while(!remaining.empty()){
-        auto far = std::max_element(remaining.begin(), remaining.end(),
-                                    [&](int a, int b){ return dist_src(a) < dist_src(b); });
-        int seed = *far;
-        remaining.erase(far);
-        const Pin sp = tree.nodes[seed].pos;
-        std::sort(remaining.begin(), remaining.end(), [&](int a, int b){
-            return calculate_distance(sp, tree.nodes[a].pos) < calculate_distance(sp, tree.nodes[b].pos);
-        });
+    int n = active.size();
+    std::vector<Pin> pts(n);
+    for(int i = 0 ; i < n ; i++)
+        pts[i] = tree.nodes[active[i]].pos;
+    PointGrid grid(pts);
+    const int max_len = max_buffer_length(data);
+    const int CAP = 8 * max_fanout;             // 每個 seed 最多試這麼多個候選
 
-        std::vector<int> group = {seed};
-        for(int v : remaining){
+    // seed 的順序：離 SRC 由遠到近
+    std::vector<int> order(n), dsrc(n);
+    for(int i = 0 ; i < n ; i++){
+        order[i] = i;
+        dsrc[i] = calculate_distance(data.src, pts[i]);
+    }
+    std::sort(order.begin(), order.end(), [&](int a, int b){
+        return dsrc[a] != dsrc[b] ? dsrc[a] > dsrc[b] : a < b;
+    });
+
+    std::vector<char> used(n, 0);
+    std::vector<std::vector<int>> groups;
+    for(int seed : order){
+        if(used[seed])
+            continue;
+        used[seed] = 1;
+        std::vector<int> group = {active[seed]};
+        auto cand = grid.nearest(pts[seed], CAP, max_len, [&](int id){ return !used[id]; });
+        for(const auto &c : cand){
             if((int)group.size() >= max_fanout)
                 break;
-            group.push_back(v);
+            group.push_back(active[c.second]);
             if(cheapest_type(group, tree, data) < 0)
                 group.pop_back();
+            else
+                used[c.second] = 1;
         }
-        for(size_t k = 1 ; k < group.size() ; k++)
-            remaining.erase(std::find(remaining.begin(), remaining.end(), group[k]));
         groups.push_back(group);
     }
     return groups;
@@ -395,78 +510,85 @@ static std::vector<std::vector<int>> group_greedy(std::vector<int> remaining, co
 
 // 有容量限制的 k-means：每群最多 max_fanout 個點，中心用中位數（Manhattan 距離下的最佳中心）。
 // k 用 greedy 分群的平均群大小來估，因為 length 限制通常讓一群塞不滿 max_fanout。
-// 分完後帶不動的群，把最遠的點踢出去，再試著塞進附近還有空間的群
+// 分完後帶不動的群，把最遠的點踢出去，再試著塞進附近還有空間的群。
+// 找最近的中心都用 grid，不用每個點掃過全部 k 個中心
 static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active, const InputData &data,
                                                   const Tree &tree, int max_fanout, double size_scale)
 {
     int n = active.size();
-    int pts = 0, cnt = 0;
+    int pts_cnt = 0, cnt = 0;
     for(const std::vector<int> &g : group_greedy(active, data, tree, max_fanout))
         if(g.size() > 1){
-            pts += g.size();
+            pts_cnt += g.size();
             cnt++;
         }
-    double avg = (cnt ? (double)pts / cnt : max_fanout) * size_scale;
+    double avg = (cnt ? (double)pts_cnt / cnt : max_fanout) * size_scale;
     int k = std::max((n + max_fanout - 1) / max_fanout, (int)std::ceil(n / avg));
     k = std::min(k, std::max(1, n - 1));   // 至少留一群有 2 個點，不然這層永遠合併不起來
-    auto pos = [&](int i){ return tree.nodes[active[i]].pos; };
 
-    // 初始中心：farthest-first，從離 SRC 最遠的點開始
+    std::vector<Pin> pts(n);
+    for(int i = 0 ; i < n ; i++)
+        pts[i] = tree.nodes[active[i]].pos;
+    PointGrid point_grid(pts);
+
+    // 初始中心：farthest-first，從離 SRC 最遠的點開始。
+    // 每加一個中心，只有離它比「目前最遠距離」還近的點需要更新，用 grid 只看那個範圍；
+    // 最遠的點用 lazy 的 max-heap 維護
     std::vector<Pin> centers;
     std::vector<int> near_d(n, INT_MAX);
+    std::priority_queue<std::pair<int,int>> heap;        // (near_d, -id)，同距離時 id 小的優先
     int first = 0;
     for(int i = 1 ; i < n ; i++)
-        if(calculate_distance(data.src, pos(i)) > calculate_distance(data.src, pos(first)))
+        if(calculate_distance(data.src, pts[i]) > calculate_distance(data.src, pts[first]))
             first = i;
-    centers.push_back(pos(first));
+    centers.push_back(pts[first]);
+    for(int i = 0 ; i < n ; i++){
+        near_d[i] = calculate_distance(pts[i], pts[first]);
+        heap.push({near_d[i], -i});
+    }
     while((int)centers.size() < k){
-        int far = 0;
-        for(int i = 0 ; i < n ; i++){
-            near_d[i] = std::min(near_d[i], calculate_distance(pos(i), centers.back()));
-            if(near_d[i] > near_d[far])
-                far = i;
-        }
-        centers.push_back(pos(far));
+        while(heap.top().first != near_d[-heap.top().second])
+            heap.pop();
+        int far = -heap.top().second;
+        Pin c = pts[far];
+        centers.push_back(c);
+        point_grid.within(c, heap.top().first + 1, [&](int i){
+            int d = calculate_distance(pts[i], c);
+            if(d < near_d[i]){
+                near_d[i] = d;
+                heap.push({d, -i});
+            }
+        });
     }
 
     std::vector<int> assign(n, -1);
-    const int CAND = 16;        // 每個點只看最近的幾個中心，太多會很慢
+    const int CAND = 16;        // 每個點只看最近的幾個中心
     for(int iter = 0 ; iter < 20 ; iter++){
+        PointGrid center_grid(centers);
+        std::vector<int> size(k, 0), new_assign(n, -1);
         // 每個點的候選中心（由近到遠）
-        std::vector<std::vector<int>> cand(n);
+        std::vector<std::vector<std::pair<int,int>>> cand(n);
         std::vector<int> order(n), regret(n);
         for(int i = 0 ; i < n ; i++){
-            std::vector<int> ids(k);
-            for(int c = 0 ; c < k ; c++)
-                ids[c] = c;
-            int m = std::min(k, CAND);
-            auto by_dist = [&](int a, int b){
-                return calculate_distance(pos(i), centers[a]) < calculate_distance(pos(i), centers[b]);
-            };
-            std::partial_sort(ids.begin(), ids.begin() + m, ids.end(), by_dist);
-            ids.resize(m);
-            cand[i] = ids;
+            cand[i] = center_grid.nearest(pts[i], CAND, INT_MAX, [](int){ return true; });
             // regret：第一和第二近的差距越大，越該先分，免得被搶走
-            regret[i] = m > 1 ? calculate_distance(pos(i), centers[ids[1]]) - calculate_distance(pos(i), centers[ids[0]]) : 0;
+            regret[i] = cand[i].size() > 1 ? cand[i][1].first - cand[i][0].first : 0;
             order[i] = i;
         }
-        std::sort(order.begin(), order.end(), [&](int a, int b){ return regret[a] > regret[b]; });
+        std::sort(order.begin(), order.end(), [&](int a, int b){
+            return regret[a] != regret[b] ? regret[a] > regret[b] : a < b;
+        });
 
-        std::vector<int> size(k, 0), new_assign(n, -1);
         for(int i : order){
-            for(int c : cand[i])
-                if(size[c] < max_fanout){
-                    new_assign[i] = c;
+            for(const auto &c : cand[i])
+                if(size[c.second] < max_fanout){
+                    new_assign[i] = c.second;
                     break;
                 }
             if(new_assign[i] < 0){
                 // 候選都滿了：找最近的還有空位的中心（總容量 k*F >= n，一定找得到）
-                int best = -1;
-                for(int c = 0 ; c < k ; c++)
-                    if(size[c] < max_fanout &&
-                       (best < 0 || calculate_distance(pos(i), centers[c]) < calculate_distance(pos(i), centers[best])))
-                        best = c;
-                new_assign[i] = best;
+                auto c = center_grid.nearest(pts[i], 1, INT_MAX, [&](int id){ return size[id] < max_fanout; });
+                new_assign[i] = c[0].second;
             }
             size[new_assign[i]]++;
         }
@@ -501,22 +623,24 @@ static std::vector<std::vector<int>> group_kmeans(const std::vector<int> &active
         }
     }
 
-    // 被踢出去的點：由近到遠試其他群，加進去還帶得動就放，都不行才自成一群
+    // 被踢出去的點：由近到遠試附近的群（依中心距離），加進去還帶得動就放，都不行才自成一群
+    std::vector<Pin> group_center(k);
+    for(int c = 0 ; c < k ; c++)
+        group_center[c] = groups[c].empty() ? centers[c] : median_pos(groups[c], tree);
+    PointGrid group_grid(group_center);
     for(int v : kicked){
-        const Pin p = tree.nodes[v].pos;
-        std::vector<std::pair<int,int>> near;     // (到群中位數的距離, 群 index)
-        for(int c = 0 ; c < k ; c++)
-            if(!groups[c].empty() && (int)groups[c].size() < max_fanout)
-                near.push_back({calculate_distance(p, median_pos(groups[c], tree)), c});
-        std::sort(near.begin(), near.end());
+        auto near = group_grid.nearest(tree.nodes[v].pos, 16, INT_MAX, [&](int c){
+            return !groups[c].empty() && (int)groups[c].size() < max_fanout;
+        });
         bool placed = false;
-        for(size_t j = 0 ; j < near.size() && j < 16 && !placed ; j++){
-            std::vector<int> &g = groups[near[j].second];
+        for(const auto &c : near){
+            std::vector<int> &g = groups[c.second];
             g.push_back(v);
-            if(cheapest_type(g, tree, data) >= 0)
+            if(cheapest_type(g, tree, data) >= 0){
                 placed = true;
-            else
-                g.pop_back();
+                break;
+            }
+            g.pop_back();
         }
         if(!placed)
             groups.push_back({v});
@@ -648,14 +772,32 @@ bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement 
                 next.insert(next.end(), group.begin(), group.end());
         }
 
-        if(!merged){
-            // 完全沒辦法合併：幫離 SRC 最遠的點加一個 repeater，把它往 SRC 拉近
-            auto far = std::max_element(next.begin(), next.end(),
-                                        [&](int a, int b){ return dist_src(a) < dist_src(b); });
-            std::vector<int> group = {*far};
+        // 沒辦法合併時要加 repeater，把節點往 SRC 拉近，之後才合併得起來。
+        // 節點少（< 100）：照舊只拉離 SRC 最遠的一個，最省 buffer。
+        // 節點多：上層的節點常常彼此距離超過 L，每層只合併得了一兩對，只拉一個的話層數會變成好幾百層，
+        // 每層又要重新分群，時間會爆掉。所以這層少不到 1% 時，幫最外圈（離 SRC 的距離在
+        // 「最遠距離 − 0.15 L」以內）的節點都加 repeater，一次把整圈往 SRC 拉近。
+        // 外圈越寬越快，但多出來的 repeater 越多；0.15 L、1%、100 都是實測 Score 與時間的折衷
+        const int long_len = data.buflib[long_type].length;
+        auto add_repeater = [&](int &v){
+            std::vector<int> group = {v};
             Pin pos;
-            if(place_buffer(group, data.buflib[long_type].length, data, tree, occupied, pos))
-                *far = add_buffer(tree, long_type, group, pos, occupied);
+            if(place_buffer(group, long_len, data, tree, occupied, pos))
+                v = add_buffer(tree, long_type, group, pos, occupied);
+        };
+        if((int)active.size() < 100){
+            if(!merged)
+                add_repeater(*std::max_element(next.begin(), next.end(),
+                                               [&](int a, int b){ return dist_src(a) < dist_src(b); }));
+        }
+        else if(!merged || (active.size() - next.size()) * 100 < active.size()){
+            int far_d = 0;
+            for(int v : next)
+                far_d = std::max(far_d, dist_src(v));
+            int band = far_d - long_len * 15 / 100;
+            for(int &v : next)
+                if(dist_src(v) >= band && dist_src(v) > 0)
+                    add_repeater(v);
         }
         active = next;
     }
@@ -1254,6 +1396,7 @@ int main(int argc, char* argv[])
     Tree tree;
     TreeInfo info;
     Result res;
+    std::string chosen;            // 被選中的建樹組合名稱
     bool ok = false;
     // k-means 的群大小倍率（第一層, 上層）。沒有一組在所有測資都最好：
     // 中大型測資喜歡大一點的群（1.5），很小的測資第一層喜歡小一點的群（0.7）
@@ -1279,12 +1422,14 @@ int main(int argc, char* argv[])
             info = ti;
             res = r;
             ok = true;
+            chosen = std::string(v.name) + " + " + placement_name[p];
         }
     }
     if(!ok){
         std::cerr << "Failed to build a legal clock tree\n";
         return 1;
     }
+    std::cerr << "selected build: " << chosen << " (Score " << res.score << ")\n";
 
     if(ls_time > 0 || ls_iters > 0){
         LocalSearch ls(data, tree, ls_seed);

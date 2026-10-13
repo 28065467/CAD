@@ -16,3 +16,11 @@ skew只被T_max/min影響,所以只要找到T_max/min所屬的sink,並對它們�
 ![alt text](/home/lin/CAD/project_2/local_search/image.png)
 
 # Cost
+## Dynamic Cluster size
+前面都是用k-means當作分群法,現在針對平均群大小乘上一個倍率再算k,如果群大一點那buffer cost就會變小但線長就會變長,反之,群變小那線長短而buffer cost大.但最好的數值無法確定,所以只能用時間多跑幾組換取分數的提昇
+
+
+# Run time
+大多數的時間都用來做分群建樹了,不論是k-means或greedy分群兩者都大致要o(n^2)的時間
+利用網格化可以避免每次到新的PIN時都要重新計算距離(也就是O(n^2)的來源)這樣,改變後只要評估大概的距離就可以用他來在網格上挑出符合條件的點,且只要做一次就可以應用在所有pin上,因此降低時間複雜度到O(n^2)
+![alt text](/home/lin/CAD/project_2/grid.png)

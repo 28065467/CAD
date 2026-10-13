@@ -778,12 +778,46 @@ bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement 
         // 每層又要重新分群，時間會爆掉。所以這層少不到 1% 時，幫最外圈（離 SRC 的距離在
         // 「最遠距離 − 0.15 L」以內）的節點都加 repeater，一次把整圈往 SRC 拉近。
         // 外圈越寬越快，但多出來的 repeater 越多；0.15 L、1%、100 都是實測 Score 與時間的折衷
+        // 加 repeater 前先試著順便收附近的節點：repeater 只有 1 個 child，fanout 還空很多。
+        // 收得進來就變成一顆普通的 buffer（用帶得動的最便宜 type），一個都收不進來才是單純的 repeater。
+        // 被收走的節點記在 consumed，最後從 next 移除
         const int long_len = data.buflib[long_type].length;
+        std::vector<char> consumed;
+        auto is_consumed = [&](int u){ return u < (int)consumed.size() && consumed[u]; };
         auto add_repeater = [&](int &v){
+            if(is_consumed(v))
+                return;
+            std::vector<std::pair<int,int>> near;           // (距離, 節點)
+            for(int u : next)
+                if(u != v && !is_consumed(u)){
+                    int d = calculate_distance(tree.nodes[v].pos, tree.nodes[u].pos);
+                    if(d <= long_len)
+                        near.push_back({d, u});
+                }
+            std::sort(near.begin(), near.end());
             std::vector<int> group = {v};
+            for(const auto &c : near){
+                if((int)group.size() >= max_fanout)
+                    break;
+                group.push_back(c.second);
+                if(cheapest_type(group, tree, data) < 0)
+                    group.pop_back();
+            }
+            int t = group.size() > 1 ? cheapest_type(group, tree, data) : long_type;
             Pin pos;
-            if(place_buffer(group, long_len, data, tree, occupied, pos))
-                v = add_buffer(tree, long_type, group, pos, occupied);
+            if(!place_buffer(group, data.buflib[t].length, data, tree, occupied, pos)){
+                if(group.size() == 1)
+                    return;
+                group = {v};            // 收進來的放不下，退回單純的 repeater
+                t = long_type;
+                if(!place_buffer(group, long_len, data, tree, occupied, pos))
+                    return;
+            }
+            if(consumed.size() < tree.nodes.size() + 1)
+                consumed.resize(tree.nodes.size() + 1, 0);
+            for(size_t k = 1 ; k < group.size() ; k++)
+                consumed[group[k]] = 1;
+            v = add_buffer(tree, t, group, pos, occupied);
         };
         if((int)active.size() < 100){
             if(!merged)
@@ -799,6 +833,8 @@ bool build_tree(const InputData &data, Tree &tree, Grouping grouping, Placement 
                 if(dist_src(v) >= band && dist_src(v) > 0)
                     add_repeater(v);
         }
+        if(!consumed.empty())
+            next.erase(std::remove_if(next.begin(), next.end(), is_consumed), next.end());
         active = next;
     }
     return false;
